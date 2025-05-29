@@ -9,6 +9,11 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_AUDIENCE: str = "your-audience"
     JWT_ISSUER: str = "your-issuer"
+    
+    # Rate limiting settings
+    RATE_LIMIT_PER_MINUTE: int = 60
+    RATE_LIMIT_WINDOW_SECONDS: int = 60
+    RATE_LIMIT_ENABLED: bool = True
 
     model_config = ConfigDict(env_file=".env")
 
