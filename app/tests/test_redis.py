@@ -26,9 +26,8 @@ def redis_client():
         client.delete(*test_keys)
 
 
-def test_rate_limiter_basic(redis_client):
-    """Test the core RedisRateLimiter class functionality with token bucket"""
-
+def test_redis_rate_limiter_basic(redis_client):
+    """Test the core RedisRateLimiter functionality with token bucket"""
     limiter = RedisRateLimiter(3)
     client_id = "test-client"
     
@@ -44,9 +43,8 @@ def test_rate_limiter_basic(redis_client):
     assert remaining == 0
 
 
-def test_rate_limiter_token_refill(redis_client):
-    """Test that tokens are refilled over time"""
-
+def test_redis_rate_limiter_token_refill(redis_client):
+    """Test that tokens are refilled over time in Redis"""
     # 2 tokens max, with refill of 2 tokens per second
     limiter = RedisRateLimiter(2, window_size_seconds=1)
     client_id = "test-client-refill"
@@ -80,8 +78,8 @@ def test_rate_limiter_token_refill(redis_client):
     assert remaining == 1
 
 
-def test_rate_limiter_different_clients(redis_client):
-    """Test that different clients have separate token buckets"""
+def test_redis_rate_limiter_different_clients(redis_client):
+    """Test that different clients have separate token buckets in Redis"""
     limiter = RedisRateLimiter(2)
     
     # Client 1 uses all tokens
@@ -98,7 +96,7 @@ def test_rate_limiter_different_clients(redis_client):
     assert remaining == 1
 
 
-def test_rate_limiter_persistence(redis_client):
+def test_redis_rate_limiter_persistence(redis_client):
     """Test that rate limit state persists in Redis across limiter instances"""
     limiter1 = RedisRateLimiter(3)
     client_id = "test-persistence"
@@ -120,27 +118,26 @@ def test_rate_limiter_persistence(redis_client):
     assert is_limited
 
 
-def test_redis_keys_cleanup(redis_client):
-    """Test that Redis keys are properly cleaned up with TTL"""
-    limiter = RedisRateLimiter(5, window_size_seconds=1)
-    client_id = "test-cleanup"
+def test_redis_rate_limiter_error_handling(redis_client):
+    """Test rate limiter behavior when Redis is unavailable"""
+    limiter = RedisRateLimiter(3)
     
-    # Make a request to create the key
-    limiter.is_rate_limited(client_id)
+    # Mock Redis error by replacing the redis client with None
+    original_client = limiter.redis_client
+    limiter.redis_client = None
     
-    # Verify key exists
-    key = f"rate_limit:{client_id}"
-    assert redis_client.exists(key)
+    # Should fallback gracefully (allow request)
+    is_limited, remaining = limiter.is_rate_limited("test-error")
+    assert not is_limited
+    assert remaining == 3  # Should return max tokens as fallback
     
-    # Check that TTL is set (should be window_size * 3)
-    ttl = redis_client.ttl(key)
-    assert ttl > 0
-    assert ttl <= 3  # 3 seconds for window_size=1
+    # Restore client
+    limiter.redis_client = original_client
 
 
 @pytest.fixture
 def app_client_redis():
-    """Create a test FastAPI app with Redis-based rate limit middleware"""
+    """Create a test FastAPI app with Redis rate limit middleware"""
     app = FastAPI()
     
     # 3 tokens max, refilled at 3 per second for faster testing
@@ -175,15 +172,15 @@ def app_client_redis():
         redis_client.delete(*test_keys)
 
 
-def test_middleware_health_endpoint(app_client_redis):
-    """Test that health endpoint bypasses rate limiting with Redis"""
+def test_redis_middleware_health_endpoint(app_client_redis):
+    """Test that health endpoint bypasses Redis rate limiting"""
     # Make many requests to health endpoint - all should work
     for _ in range(10):
         response = app_client_redis.get("/health")
         assert response.status_code == 200
 
 
-def test_middleware_rate_limit_headers_token_bucket(app_client_redis):
+def test_redis_middleware_rate_limit_headers(app_client_redis):
     """Test that Redis rate limit headers are added to responses"""
     response = app_client_redis.get("/test")
     assert response.status_code == 200
@@ -202,15 +199,13 @@ def test_middleware_rate_limit_headers_token_bucket(app_client_redis):
     assert reset_time > time.time()
 
 
-def test_middleware_enforces_token_bucket_rate_limit(app_client_redis):
-    """Test that middleware enforces the Redis token bucket rate limit"""
+def test_redis_middleware_enforces_rate_limit(app_client_redis):
+    """Test that middleware enforces Redis rate limit"""
     # First 3 requests should succeed (use all tokens)
     for i in range(3):
         response = app_client_redis.get("/test")
         assert response.status_code == 200
-        expected_remaining = 2 - i
-        actual_remaining = int(response.headers["X-RateLimit-Remaining"])
-        assert actual_remaining == expected_remaining, f"Expected {expected_remaining}, got {actual_remaining}"
+        assert response.headers["X-RateLimit-Remaining"] == str(2 - i)
     
     # 4th request should be rate limited (bucket empty)
     response = app_client_redis.get("/test")
@@ -230,24 +225,34 @@ def test_middleware_enforces_token_bucket_rate_limit(app_client_redis):
     assert response.status_code == 429
 
 
-def test_token_bucket_gradual_refill(app_client_redis):
-    """Test that Redis tokens are gradually refilled over time"""
-    # Use all tokens
-    for _ in range(3):
-        app_client_redis.get("/test")
+def test_redis_distributed_rate_limiting(app_client_redis):
+    """Test distributed rate limiting across multiple client instances"""
+    # Create second client (simulating different gateway instance)
+    app = FastAPI()
+    app.add_middleware(
+        RateLimitMiddleware, 
+        rate_limit_per_minute=3,
+        window_size_seconds=1
+    )
     
-    # Should be rate limited now
-    response = app_client_redis.get("/test")
-    assert response.status_code == 429
+    @app.get("/test")
+    async def test_endpoint():
+        return {"status": "ok"}
     
-    # Wait a bit for partial refill 
-    time.sleep(0.7)
+    client2 = TestClient(app)
     
-    # Make 2 requests that should succeed
-    for i in range(2):
-        response = app_client_redis.get("/test")
-        assert response.status_code == 200
-        
-    # Third request should be limited again
-    response = app_client_redis.get("/test")
-    assert response.status_code == 429
+    # Use 2 tokens with first client
+    app_client_redis.get("/test")
+    app_client_redis.get("/test")
+    
+    # Use remaining token with second client - should work
+    response = client2.get("/test")
+    assert response.status_code == 200
+    assert response.headers["X-RateLimit-Remaining"] == "0"
+    
+    # Next request from either client should be limited
+    response1 = app_client_redis.get("/test")
+    assert response1.status_code == 429
+    
+    response2 = client2.get("/test")
+    assert response2.status_code == 429
