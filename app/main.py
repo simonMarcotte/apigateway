@@ -1,9 +1,8 @@
-
-import logging
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI
 
 from app.middleware.logging import LoggingMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
+from app.middleware.cache import CacheMiddleware
 from app.routers.proxy import router as proxy_router
 from app.middleware.auth import auth_middleware
 from app.config import settings
@@ -11,9 +10,15 @@ from app.config import settings
 
 app = FastAPI(title="Gateway API", version="1.0.0")
 
-# Register middlewares (order matters here)
 # Logging should be first to capture all requests
 app.add_middleware(LoggingMiddleware)
+
+# Response caching
+if settings.CACHE_ENABLED:
+    app.add_middleware(
+        CacheMiddleware,
+        cache_ttl=settings.CACHE_TTL
+    )
 
 # Rate limiting
 if settings.RATE_LIMIT_ENABLED:
