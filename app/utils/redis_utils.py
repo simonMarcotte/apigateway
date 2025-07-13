@@ -1,5 +1,4 @@
 import redis
-import json
 import logging
 from typing import Optional
 from ..config import settings
@@ -21,8 +20,7 @@ class RedisConnection:
                     password=getattr(settings, 'REDIS_PASSWORD', None),
                     decode_responses=True,
                     socket_connect_timeout=5,
-                    socket_timeout=5,
-                    retry_on_timeout=True
+                    socket_timeout=5
                 )
                 # Test connection
                 cls._instance.ping()

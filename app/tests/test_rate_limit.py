@@ -1,6 +1,5 @@
 import pytest
 import time
-import redis
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 

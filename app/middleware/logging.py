@@ -16,10 +16,10 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             raise
         process_time = (time.time() - start_time) * 1000  # Convert to milliseconds
 
-        logging.info(
+        logger.info(
             f"Request: {request.method} {request.url} - "
             f"Response: {response.status_code} - "
-            f"Process Time: {process_time:.4f} seconds"
+            f"Process Time: {process_time:.4f}ms"
         )
 
         return response
