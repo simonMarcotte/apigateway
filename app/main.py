@@ -24,7 +24,8 @@ if settings.CACHE_ENABLED:
 if settings.RATE_LIMIT_ENABLED:
     app.add_middleware(
         RateLimitMiddleware,
-        rate_limit_per_minute=settings.RATE_LIMIT_PER_MINUTE
+        rate_limit_per_minute=settings.RATE_LIMIT_PER_MINUTE,
+        window_size_seconds=settings.RATE_LIMIT_WINDOW_SECONDS
     )
 
 # Auth middleware
