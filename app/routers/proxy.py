@@ -79,31 +79,6 @@ async def clear_cache_pattern(pattern: str):
         raise HTTPException(status_code=500, detail=f"Failed to clear cache pattern: {str(e)}")
 
 
-# Test endpoints for performance testing
-@router.get("/test/slow")
-async def slow_endpoint():
-    """
-    Test endpoint that simulates slow response for cache testing.
-    """
-    import asyncio
-    await asyncio.sleep(0.1)  # 100ms delay
-    return {
-        "message": "This is a slow endpoint for testing cache performance",
-        "timestamp": time.time(),
-        "delay": "100ms"
-    }
-
-
-@router.get("/test/fast")
-async def fast_endpoint():
-    """
-    Test endpoint for cache testing.
-    """
-    return {
-        "message": "This is a fast endpoint for testing cache performance",
-        "timestamp": time.time()
-    }
-
 @router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def proxy_request(request: Request, path: str):
     """
